@@ -1,9 +1,44 @@
 #include "data_task.h"
+#include <string.h>
 
-//用于发送数据的结构体
+//Structure for storing data to be sent.
 SEND_DATA Send_Data;
 SEND_AutoCharge_DATA Send_AutoCharge_Data;
 
+static void DebugLog_SendBuffer(const uint8_t *buffer,uint8_t len)
+{
+	uint8_t i;
+	for(i=0;i<len;i++)
+	{
+		uart1_send(buffer[i]);
+		uart3_send(buffer[i]);
+	}
+}
+
+void DebugLog_Report(uint8_t code, const char *text)
+{
+	uint8_t frame[LOG_FRAME_SIZE] = {0};
+	uint8_t text_len = 0;
+	uint8_t i = 0;
+
+	if( text == NULL ) text = "";
+	while( text[text_len] != '\0' && text_len < LOG_FRAME_TEXT_SIZE )
+	{
+		text_len++;
+	}
+
+	frame[0] = LOG_FRAME_HEADER;
+	frame[1] = code;
+	frame[2] = text_len;
+	for(i=0;i<text_len;i++)
+	{
+		frame[3+i] = (uint8_t)text[i];
+	}
+	frame[LOG_FRAME_SIZE-2] = Check_BCC(frame,LOG_FRAME_SIZE-2);
+	frame[LOG_FRAME_SIZE-1] = LOG_FRAME_TAIL;
+
+	DebugLog_SendBuffer(frame,LOG_FRAME_SIZE);
+}
 /**************************************************************************
 Function: Robot Data Transmission Task: Sending robot status, IMU, speed, and other information to various interfaces.
 Input   : none

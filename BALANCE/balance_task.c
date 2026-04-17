@@ -1,4 +1,5 @@
 #include "balance_task.h"
+#include "data_task.h"
 
 //与小车控制相关
 ROBOT_CONTROL_t robot_control;
@@ -1612,50 +1613,49 @@ Author: WHEELTEC
 **************************************************************************/
 static void robot_mode_check(void)
 {
-	//TODO:自检程序,同向电机接反难判断.
+	//TODO:self-check cannot easily detect motors wired in reverse in the same direction.
 	
-	#define OVERLOAD_PWM 8000 //超载PWM预警值
-	#define ENCODER_LOST_PWM 5500 //编码器未接时,PWM报错阈值
+	#define OVERLOAD_PWM 8000
+	#define ENCODER_LOST_PWM 5500
 	
-    static u8 init=0;//初始化
+    static u8 init=0;
     if( 0 == init ) 
 	{
 		ROBOT_SELFCHECK_t_Init(&robot_check);
 		init=1;
 	}
 
-    if( EN==1 && robot_check.errorflag ==0 ) //保留可以使用急停开关跳过自检的功能
+    if( EN==1 && robot_check.errorflag ==0 )
     {
-		#if defined OMNI_CAR //全向轮小车结构特殊,独立自检逻辑
-			
-			//1、全向轮自检时,仅B、C电机转动.若A路存在数值则说明驱动器或编码器线接错(/4代表四分一圈)
+		#if defined OMNI_CAR
 			if( robot_check.check_a > robot.HardwareParam.Encoder_precision/4 || \
-				robot_check.check_a < -robot.HardwareParam.Encoder_precision/4	)
+				robot_check.check_a < -robot.HardwareParam.Encoder_precision/4 )
 			{
+				DebugLog_Report(LOG_CODE_OMNI_A_PATH_ACTIVE,"A path active");
 				Buzzer_AddTask(1,20);
 				robot_check.errorflag = 1;
 			}
 			
-			//2、车型不对或接线不对导致的电机反向错误
 			if( robot_check.check_b > robot.HardwareParam.Encoder_precision/4 || \
 				robot_check.check_c < -robot.HardwareParam.Encoder_precision/4 )
 			{
+				DebugLog_Report(LOG_CODE_OMNI_DIR_MISMATCH,"Dir mismatch");
 				Buzzer_AddTask(2,20);
 				robot_check.errorflag = 1;
 			}
 			
-			//3、任意电机PWM输出到达阈值,对应的编码器数据很小(轮子转动不到12°)或无数据,则认为编码器线未接
 			if( ( fabs( robot.MOTOR_B.Output ) > ENCODER_LOST_PWM && robot_check.check_b > -robot.HardwareParam.Encoder_precision/30 ) || \
 				( fabs( robot.MOTOR_C.Output ) > ENCODER_LOST_PWM && robot_check.check_c < robot.HardwareParam.Encoder_precision/30 ) )
 			{
+				DebugLog_Report(LOG_CODE_OMNI_ENCODER_LOST,"Encoder lost");
 				Buzzer_AddTask(3,20);
 				robot_check.errorflag = 1;
 			}
 			
-			//4、任意电机PWM输出超过更大阈值,则认为小车过载
 			if( fabs( robot.MOTOR_A.Output ) > OVERLOAD_PWM || fabs( robot.MOTOR_B.Output ) > OVERLOAD_PWM || \
 				fabs( robot.MOTOR_C.Output ) > OVERLOAD_PWM )
 			{
+				DebugLog_Report(LOG_CODE_OMNI_MOTOR_OVERLOAD,"Motor overload");
 				Buzzer_AddTask(4,20);
 				robot_check.errorflag = 1;
 			}
@@ -1664,39 +1664,43 @@ static void robot_mode_check(void)
 			static int last_a=0,last_b=0,last_c=0,last_d=0;
 			static u8 err_time = 0;
 			
-			//1、任意车轮反转 1/4 圈 认为是编码器线或驱动线接反,或者是车型选错.
 			if( robot_check.check_a < -robot.HardwareParam.Encoder_precision/4  || \
 				robot_check.check_b < -robot.HardwareParam.Encoder_precision/4  || \
 				robot_check.check_c < -robot.HardwareParam.Encoder_precision/4  || \
 				robot_check.check_d < -robot.HardwareParam.Encoder_precision/4  ) 
 			{
+				DebugLog_Report(LOG_CODE_REVERSE_WHEEL,"Reverse wheel");
 				robot_check.errorflag = 1;
 				Buzzer_AddTask(1,20);
 			}
 			
-			//2、任意电机PWM输出到达阈值,对应的编码器数据很小(轮子转动不到12°)或无数据,则认为编码器线未接
 			if( ( abs( robot.MOTOR_A.Output ) > ENCODER_LOST_PWM && robot_check.check_a < robot.HardwareParam.Encoder_precision/30 ) || \
 				( abs( robot.MOTOR_B.Output ) > ENCODER_LOST_PWM && robot_check.check_b < robot.HardwareParam.Encoder_precision/30 ) || \
 				( abs( robot.MOTOR_C.Output ) > ENCODER_LOST_PWM && robot_check.check_c < robot.HardwareParam.Encoder_precision/30 ) || \
 				( abs( robot.MOTOR_D.Output ) > ENCODER_LOST_PWM && robot_check.check_d < robot.HardwareParam.Encoder_precision/30 )  )
 			{
+				DebugLog_Report(LOG_CODE_ENCODER_LOST,"Encoder lost");
 				robot_check.errorflag = 1;
 				Buzzer_AddTask(2,20);
 			}
 			
-			//3、任意电机PWM输出超过更大阈值,则认为小车过载
 			if( abs( robot.MOTOR_A.Output ) > OVERLOAD_PWM || abs( robot.MOTOR_B.Output ) > OVERLOAD_PWM || \
-				abs( robot.MOTOR_C.Output ) > OVERLOAD_PWM || abs( robot.MOTOR_D.Output ) > OVERLOAD_PWM	)
+				abs( robot.MOTOR_C.Output ) > OVERLOAD_PWM || abs( robot.MOTOR_D.Output ) > OVERLOAD_PWM )
 			{
+				DebugLog_Report(LOG_CODE_MOTOR_OVERLOAD,"Motor overload");
 				robot_check.errorflag = 1;
 				Buzzer_AddTask(3,20);
 			}
 			
-			//4、出现多次累计值倒退,除了1中的异常,也可能是多种错误累计叠加的表现.
 			if( abs(robot_check.check_a) < abs(last_a) - 50 || abs(robot_check.check_b) < abs(last_b) - 50 || abs(robot_check.check_c) < abs(last_c) - 50|| abs(robot_check.check_d) < abs(last_d) - 50 )
 			{
 				err_time++;
-				if( err_time > 20 )  robot_check.errorflag = 1 , Buzzer_AddTask(4,20);	
+				if( err_time > 20 )
+				{
+					DebugLog_Report(LOG_CODE_COUNT_ROLLBACK,"Count rollback");
+					robot_check.errorflag = 1;
+					Buzzer_AddTask(4,20);
+				}
 			}
 		
 			last_a = robot_check.check_a;
@@ -1706,7 +1710,6 @@ static void robot_mode_check(void)
 		#endif
     }
 }
-
 /**************************************************************************
 Functionality: Read Feedback Values - Retrieves feedback values from each actuator of the robot.
 Input Parameters: None.

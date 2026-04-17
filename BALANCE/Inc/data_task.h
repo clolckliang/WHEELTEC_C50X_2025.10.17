@@ -16,7 +16,23 @@
 //自动回充帧头、帧尾、数据长度
 #define AutoCharge_HEADER      0X7C //Frame_header //帧头
 #define AutoCharge_TAIL        0X7F //Frame_tail   //帧尾
-#define AutoCharge_DATA_SIZE    8
+#define AutoCharge_DATA_SIZE   8
+
+// debug log frame
+#define LOG_FRAME_HEADER      0X7E
+#define LOG_FRAME_TAIL        0X7F
+#define LOG_FRAME_TEXT_SIZE   14
+#define LOG_FRAME_SIZE        19
+
+// self-check log codes
+#define LOG_CODE_OMNI_A_PATH_ACTIVE   0X11
+#define LOG_CODE_OMNI_DIR_MISMATCH    0X12
+#define LOG_CODE_OMNI_ENCODER_LOST    0X13
+#define LOG_CODE_OMNI_MOTOR_OVERLOAD  0X14
+#define LOG_CODE_REVERSE_WHEEL        0X21
+#define LOG_CODE_ENCODER_LOST         0X22
+#define LOG_CODE_MOTOR_OVERLOAD       0X23
+#define LOG_CODE_COUNT_ROLLBACK       0X24
 
 //IMU三轴数据
 typedef struct __Mpu6050_Data_ 
@@ -67,6 +83,7 @@ typedef struct _SEND_AutoCharge_DATA_
 
 //对外使用变量
 uint8_t Check_BCC(const uint8_t *data, uint16_t length);
+void DebugLog_Report(uint8_t code, const char *text);
 void data_task(void *pvParameters);
 
 extern TaskHandle_t data_TaskHandle ;

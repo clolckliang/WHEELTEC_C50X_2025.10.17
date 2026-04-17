@@ -48,6 +48,10 @@ TX_FRAME_LEN = 11
 RX_FRAME_LEN = 24
 FRAME_HEAD = 0x7B
 FRAME_TAIL = 0x7D
+LOG_FRAME_HEAD = 0x7E
+LOG_FRAME_TAIL = 0x7F
+LOG_FRAME_LEN = 19
+LOG_TEXT_LEN = 14
 
 BG = "#0d1117"
 PANEL = "#161b22"
@@ -134,6 +138,22 @@ class MotionFrame:
         frame[9] = calc_bcc(frame[:9])
         frame[10] = FRAME_TAIL
         return bytes(frame)
+
+
+@dataclass(slots=True)
+class LogFrame:
+    code: int
+    text: str
+    bcc_valid: bool
+
+    @classmethod
+    def decode(cls, frame: bytes) -> "LogFrame":
+        if len(frame) != LOG_FRAME_LEN:
+            raise ValueError(f"invalid LOG frame length: {len(frame)}")
+        text_len = min(frame[2], LOG_TEXT_LEN)
+        text = frame[3:3 + text_len].decode("ascii", errors="replace").strip("\x00 ")
+        bcc_valid = calc_bcc(frame[: LOG_FRAME_LEN - 2]) == frame[LOG_FRAME_LEN - 2]
+        return cls(code=frame[1], text=text, bcc_valid=bcc_valid)
 
 
 def calc_bcc(data: bytes) -> int:
@@ -913,7 +933,6 @@ class WheeltecController:
         self.connected = True
         self.rx_buffer.clear()
         self.last_sent_payload = None
-        # 清空ACK相关状态
         self._pending_acks.clear()
         self._acked_line_ids.clear()
         self.conn_btn.config(text="断开串口", bg=DANGER, activebackground="#b91c1c")
@@ -933,14 +952,12 @@ class WheeltecController:
             except tk.TclError:
                 pass
             self.auto_send_job = None
-        # 取消ACK检查定时器
         if self._ack_check_job is not None:
             try:
                 self.root.after_cancel(self._ack_check_job)
             except tk.TclError:
                 pass
             self._ack_check_job = None
-        # 清空待确认列表
         self._pending_acks.clear()
         self._acked_line_ids.clear()
 
@@ -961,7 +978,6 @@ class WheeltecController:
         log_msg = reason if reason else "串口已断开"
         self._log(log_msg, "warn" if reason else "inf")
 
-        # 断线自动重连
         if reason and self.auto_reconnect_var.get():
             self.root.after(1500, self._auto_reconnect)
 
@@ -984,7 +1000,7 @@ class WheeltecController:
             self.conn_btn.config(text="断开串口", bg=DANGER, activebackground="#b91c1c")
             self.status_lbl.config(text=f"● {port} @ {baud} (重连)", fg=SUCCESS)
             self.rx_state_var.set("重连成功，等待数据")
-            self._log(f"自动重连成功", "inf")
+            self._log("自动重连成功", "inf")
             self.read_thread = threading.Thread(target=self._read_loop, daemon=True)
             self.read_thread.start()
         except serial.SerialException:
@@ -1010,25 +1026,35 @@ class WheeltecController:
                 self.root.after(0, lambda f=frame: self._handle_rx_frame(f))
 
     def _extract_frame(self) -> bytes | None:
-        while self.rx_buffer and self.rx_buffer[0] != FRAME_HEAD:
+        while self.rx_buffer and self.rx_buffer[0] not in (FRAME_HEAD, LOG_FRAME_HEAD):
             self.rx_buffer.pop(0)
+
+        if not self.rx_buffer:
+            return None
+
+        if self.rx_buffer[0] == LOG_FRAME_HEAD:
+            if len(self.rx_buffer) < LOG_FRAME_LEN:
+                return None
+            if self.rx_buffer[LOG_FRAME_LEN - 1] == LOG_FRAME_TAIL:
+                frame = bytes(self.rx_buffer[:LOG_FRAME_LEN])
+                del self.rx_buffer[:LOG_FRAME_LEN]
+                return frame
+            self.rx_buffer.pop(0)
+            return None
 
         if len(self.rx_buffer) < TX_FRAME_LEN:
             return None
 
-        # 尝试按11字节帧解析（帧尾在位置10）
         if self.rx_buffer[10] == FRAME_TAIL:
             frame = bytes(self.rx_buffer[:TX_FRAME_LEN])
             del self.rx_buffer[:TX_FRAME_LEN]
             return frame
 
-        # 尝试按24字节帧解析（帧尾在位置23）
         if len(self.rx_buffer) >= RX_FRAME_LEN and self.rx_buffer[23] == FRAME_TAIL:
             frame = bytes(self.rx_buffer[:RX_FRAME_LEN])
             del self.rx_buffer[:RX_FRAME_LEN]
             return frame
 
-        # 不足以匹配任何帧，等待更多数据
         return None
 
     def _handle_rx_frame(self, frame: bytes):
@@ -1039,11 +1065,13 @@ class WheeltecController:
 
         if len(frame) == RX_FRAME_LEN:
             self._handle_status_frame(frame)
+        elif len(frame) == LOG_FRAME_LEN:
+            self._handle_log_frame(frame)
         elif len(frame) == TX_FRAME_LEN:
             self._handle_echo_frame(frame)
         else:
-            self.rx_state_var.set(f"未知帧({len(frame)}B) @ {self.last_rx_time}")
-            self._log(f"← RX: {frame_to_hex(frame)}  [未知帧]", "warn")
+            self.rx_state_var.set(f"Unknown frame({len(frame)}B) @ {self.last_rx_time}")
+            self._log(f"← RX: {frame_to_hex(frame)}  [Unknown frame]", "warn")
 
     def _handle_status_frame(self, frame: bytes):
         """解析24字节状态帧（机器人上行数据）"""
@@ -1055,7 +1083,6 @@ class WheeltecController:
             self._log(f"← RX: {frame_to_hex(frame)}  [解析错误: {e}]", "err")
             return
 
-        # 更新状态显示
         battery_v = status.power_voltage / 1000.0
         self.rx_value_var.set(
             f"Vx={status.vel_x}  Vy={status.vel_y}  Vz={status.vel_z}\n"
@@ -1065,7 +1092,6 @@ class WheeltecController:
             f"BCC{'✓' if status.bcc_valid else '✗'}  {self.last_rx_time}"
         )
 
-        # 更新仪表盘
         self._update_dashboard(status)
 
         suffix = (
@@ -1076,7 +1102,6 @@ class WheeltecController:
         tag = "rx" if status.bcc_valid else "warn"
         self._log(f"← RX: {frame_to_hex(frame)}  [24B]{suffix}", tag)
 
-        # 写日志文件
         if self.log_writer:
             self.log_writer.writerow([
                 time.time(), status.vel_x, status.vel_y, status.vel_z,
@@ -1105,7 +1130,6 @@ class WheeltecController:
         status = "BCC 正常" if valid else "BCC 错误"
         self.rx_state_var.set(f"回显 {status}  @ {self.last_rx_time}")
 
-        # 尝试更新对应的发送日志为ACK成功状态
         if echo is not None and valid:
             ack_payload = (echo.mode, echo.vx, echo.vy, echo.vz)
             self._mark_ack_received(ack_payload)
@@ -1113,6 +1137,27 @@ class WheeltecController:
         tag = "rx" if valid else "warn"
         suffix = f"  (Vx={echo.vx} Vy={echo.vy} Vz={echo.vz / 1000:.3f})" if echo else ""
         self._log(f"← RX: {frame_to_hex(frame)}  [11B回显] {status}{suffix}", tag)
+
+    def _handle_log_frame(self, frame: bytes):
+        """Parse 19-byte device log frame."""
+        try:
+            log_frame = LogFrame.decode(frame)
+        except Exception as e:
+            self.rx_value_var.set(f"LOG parse error: {e}")
+            self.rx_state_var.set(f"LOG frame parse error @ {self.last_rx_time}")
+            self._log(f"← RX: {frame_to_hex(frame)}  [LOG parse error: {e}]", "err")
+            return
+
+        status = "BCC OK" if log_frame.bcc_valid else "BCC ERR"
+        text = log_frame.text or "<empty>"
+        self.rx_value_var.set(f"LOG[{log_frame.code:02X}] {text}")
+        self.rx_state_var.set(f"LOG frame {status}  @ {self.last_rx_time}")
+
+        tag = "err" if log_frame.bcc_valid else "warn"
+        self._log(
+            f"← RX: {frame_to_hex(frame)}  [LOG code=0x{log_frame.code:02X} text='{text}' {status}]",
+            tag,
+        )
 
     def _mark_ack_received(self, payload: tuple):
         """收到ACK后，更新对应发送日志为成功状态"""
