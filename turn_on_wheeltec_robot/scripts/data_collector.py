@@ -20,8 +20,12 @@ R550PLUS 三全向轮机器人数据采集节点
 
 或带参数：
   rosrun turn_on_wheeltec_robot data_collector.py _output_dir:=/home/wheeltec/data_collect/log
+
+Web控制模式（不自动开始采集，等待start命令）：
+  rosrun turn_on_wheeltec_robot data_collector.py _auto_start:=false
 """
 
+import json
 import rospy
 import os
 import time
@@ -29,26 +33,26 @@ import numpy as np
 from datetime import datetime
 from nav_msgs.msg import Odometry
 from sensor_msgs.msg import Imu
-from std_msgs.msg import Float32, Float32MultiArray
+from std_msgs.msg import Float32, Float32MultiArray, String
 
 class DataCollector:
     """ROS消息订阅方式的数据采集器"""
 
+    # 状态常量
+    STATE_IDLE = "idle"
+    STATE_RECORDING = "recording"
+    STATE_PROCESSING = "processing"
+
     def __init__(self):
         # 参数
         self.output_dir = rospy.get_param('~output_dir', '/home/wheeltec/R550PLUS_data_collect/log')
-        self.rate = rospy.get_param('~rate', 10)  # 采集频率 Hz (降低到10Hz避免数据量爆炸)
-        self.window_size = rospy.get_param('~window_size', 50)  # 滑动窗口大小
-        self.step_size = rospy.get_param('~step_size', 10)  # 滑动步长
+        self.rate = rospy.get_param('~rate', 10)
+        self.window_size = rospy.get_param('~window_size', 50)
+        self.step_size = rospy.get_param('~step_size', 10)
+        self.auto_start = rospy.get_param('~auto_start', True)
 
-        # 确保输出目录存在
         if not os.path.exists(self.output_dir):
             os.makedirs(self.output_dir)
-
-        # 生成文件名
-        timestamp = datetime.strftime(datetime.now(), '%Y%m%d_%H%M%S')
-        self.raw_data_file = os.path.join(self.output_dir, 'raw_data_%s.csv' % timestamp)
-        self.window_data_file = os.path.join(self.output_dir, 'window_data_%s.csv' % timestamp)
 
         # 最新数据缓存
         self.latest_odom = None
@@ -56,39 +60,90 @@ class DataCollector:
         self.latest_voltage = None
         self.latest_current = None
 
-        # 计数器用于调试
+        # 录制状态
+        self.state = self.STATE_IDLE
+        self.raw_file = None
+        self.raw_data_file = None
+        self.window_data_file = None
         self.data_count = 0
-        self.last_print_count = 0
+        self.record_start_time = 0
         self.last_print_time = time.time()
 
-        # 创建订阅者
+        # 数据订阅
         rospy.Subscriber('/odom', Odometry, self.odom_callback)
         rospy.Subscriber('/imu', Imu, self.imu_callback)
         rospy.Subscriber('/PowerVoltage', Float32, self.voltage_callback)
         rospy.Subscriber('/current_data', Float32MultiArray, self.current_callback)
 
-        # 打开原始数据文件（流式写入）
+        # Web控制：命令与状态
+        self.command_topic = rospy.get_param('~command_topic', '/web/data_collect/command')
+        self.status_topic = rospy.get_param('~status_topic', '/web/data_collect/status')
+        rospy.Subscriber(self.command_topic, String, self.command_callback)
+        self.status_pub = rospy.Publisher(self.status_topic, String, queue_size=5, latch=True)
+
+        rospy.on_shutdown(self.on_shutdown)
+        self.publish_status()
+
+        rospy.loginfo("data_collector ready, output_dir=%s, auto_start=%s", self.output_dir, self.auto_start)
+
+        if self.auto_start:
+            self.start_recording()
+
+    def publish_status(self):
+        duration = time.time() - self.record_start_time if self.state == self.STATE_RECORDING else 0
+        status = json.dumps({
+            "state": self.state,
+            "count": self.data_count,
+            "duration": round(duration, 1),
+            "rate": self.rate,
+            "file": os.path.basename(self.raw_data_file) if self.raw_data_file else "",
+            "output_dir": self.output_dir,
+        })
+        self.status_pub.publish(String(data=status))
+
+    def command_callback(self, msg):
+        cmd = msg.data.strip()
+        if cmd.lower().startswith("start"):
+            if self.state == self.STATE_IDLE:
+                label = ""
+                if ":" in cmd:
+                    label = cmd.split(":", 1)[1].strip()
+                self.start_recording(label=label)
+            else:
+                rospy.logwarn("Cannot start: state=%s", self.state)
+        elif cmd.lower() == "stop":
+            if self.state == self.STATE_RECORDING:
+                self.stop_recording()
+            else:
+                rospy.logwarn("Cannot stop: state=%s", self.state)
+
+    def start_recording(self, label=""):
+        timestamp = datetime.strftime(datetime.now(), '%Y%m%d_%H%M%S')
+        safe_label = "".join(c for c in label if c.isalnum() or c in "-_")
+        suffix = ("_%s" % safe_label) if safe_label else ""
+        self.raw_data_file = os.path.join(self.output_dir, 'raw_data_%s%s.csv' % (timestamp, suffix))
+        self.window_data_file = os.path.join(self.output_dir, 'window_data_%s%s.csv' % (timestamp, suffix))
         self.raw_file = open(self.raw_data_file, 'w')
-        # CSV格式: timestamp, x, y, z, vx, vy, vz, ax, ay, az, gx, gy, gz, voltage, current0, current1, current2
         self.raw_file.write("timestamp,x,y,z,vx,vy,vz,ax,ay,az,gx,gy,gz,voltage,current0,current1,current2\n")
         self.raw_file.flush()
+        self.data_count = 0
+        self.record_start_time = time.time()
+        self.state = self.STATE_RECORDING
+        self.publish_status()
+        rospy.loginfo("Recording started: %s", self.raw_data_file)
 
-        # 等待数据连接
-        rospy.loginfo("等待数据连接...")
-        timeout = 10.0
-        start_time = rospy.Time.now().to_sec()
-        while not rospy.is_shutdown():
-            if self.latest_odom is not None and self.latest_imu is not None:
-                rospy.loginfo("数据连接成功！")
-                break
-            if rospy.Time.now().to_sec() - start_time > timeout:
-                rospy.logwarn("等待连接超时，继续启动...")
-                break
-            rospy.sleep(0.1)
+    def stop_recording(self):
+        self.state = self.STATE_PROCESSING
+        self.publish_status()
+        self.close_raw_file()
+        self.preprocess_and_save_windows()
+        self.state = self.STATE_IDLE
+        self.publish_status()
+        rospy.loginfo("Recording stopped, %d samples", self.data_count)
 
-        rospy.loginfo("数据将保存到: %s" % self.output_dir)
-        rospy.loginfo("原始数据文件: %s" % self.raw_data_file)
-        rospy.loginfo("采集频率: %d Hz" % self.rate)
+    def on_shutdown(self):
+        if self.state == self.STATE_RECORDING:
+            self.stop_recording()
 
     def odom_callback(self, msg):
         """里程计回调"""
@@ -320,38 +375,26 @@ class DataCollector:
     def run(self):
         """运行采集循环"""
         rate = rospy.Rate(self.rate)
-        rospy.loginfo("开始数据采集，频率 %d Hz" % self.rate)
+        status_interval = 1.0
+        last_status_time = time.time()
 
-        start_time = time.time()
+        rospy.loginfo("data_collector loop running at %d Hz", self.rate)
 
-        try:
-            while not rospy.is_shutdown():
-                if self.collect_and_save_data():
-                    # 每5秒打印一次状态
-                    current_time = time.time()
-                    if current_time - self.last_print_time >= 5.0:
-                        elapsed = current_time - start_time
-                        rospy.loginfo("采集进行中... %.0f秒, %d 条数据" % (elapsed, self.data_count))
-                        self.last_print_time = current_time
-                else:
-                    rospy.sleep(0.1)
+        while not rospy.is_shutdown():
+            if self.state == self.STATE_RECORDING:
+                self.collect_and_save_data()
 
-                rate.sleep()
+            now = time.time()
+            if now - last_status_time >= status_interval:
+                self.publish_status()
+                last_status_time = now
 
-        except KeyboardInterrupt:
-            rospy.loginfo("用户中断采集")
+                if self.state == self.STATE_RECORDING and now - self.last_print_time >= 5.0:
+                    elapsed = now - self.record_start_time
+                    rospy.loginfo("Recording... %.0fs, %d samples", elapsed, self.data_count)
+                    self.last_print_time = now
 
-        finally:
-            rospy.loginfo("停止数据采集")
-            self.close_raw_file()
-            self.preprocess_and_save_windows()
-            rospy.loginfo("数据采集完成！")
-
-            # 打印统计信息
-            if self.data_count > 0:
-                duration = time.time() - start_time
-                rospy.loginfo("采集时长: %.2f秒" % duration)
-                rospy.loginfo("数据条数: %d" % self.data_count)
+            rate.sleep()
 
 
 if __name__ == '__main__':
