@@ -191,6 +191,7 @@ timestamp,x,y,z,vx,vy,vz,ax,ay,az,gx,gy,gz,voltage,current0,current1,current2
 前提：
 
 - 机器人已安装 Node.js 和 npm
+- 建议 Node.js 18 LTS，最低 `16.0.0`
 - ROS 工作空间可以正常 `catkin_make`
 
 部署步骤：
@@ -222,6 +223,16 @@ roslaunch turn_on_wheeltec_robot web_control.launch
 
 ```bash
 cd turn_on_wheeltec_robot/webapp
+npm install
+npm run build
+```
+
+如果你在机器人端执行 `npm run build` 遇到 `crypto.getRandomValues is not a function`，通常是 Node.js 版本过旧，或者此前残留了不兼容的前端依赖。可按下面顺序处理：
+
+```bash
+node -v
+cd src/turn_on_wheeltec_robot/webapp
+rm -rf node_modules package-lock.json
 npm install
 npm run build
 ```

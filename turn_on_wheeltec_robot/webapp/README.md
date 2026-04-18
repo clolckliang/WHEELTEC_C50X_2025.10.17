@@ -14,6 +14,20 @@
 - roslib
 - Browser Gamepad API
 
+## 环境要求
+
+- Node.js `>= 16.0.0`
+- 推荐使用 Node.js 18 LTS
+- npm `>= 8`
+
+如果你在机器人上执行 `npm run build` 时看到下面这类错误：
+
+```text
+TypeError: crypto.getRandomValues is not a function
+```
+
+通常说明当前 Node.js 版本过旧，或者锁定到了不兼容旧 Node 环境的 Vite 版本。当前仓库已经回退到 `vite@4`，以兼容常见的机器人端 Node 16 环境；如果仍有问题，先执行 `node -v` 确认版本。
+
 ## 目录结构
 
 ```text
@@ -75,6 +89,14 @@ turn_on_wheeltec_robot/
 
 ```bash
 cd turn_on_wheeltec_robot/webapp
+npm install
+npm run build
+```
+
+如果你之前已经安装过依赖，建议先清理一次再重新安装，避免旧的 `vite@6` 仍然留在锁文件或 `node_modules` 中：
+
+```bash
+rm -rf node_modules package-lock.json
 npm install
 npm run build
 ```
@@ -171,6 +193,13 @@ roslaunch turn_on_wheeltec_robot web_control.launch
 - 检查 `9090` 端口
 - 检查 `rosbridge_websocket` 是否成功启动
 - 检查浏览器中配置的 WebSocket 地址是否为机器人 IP
+
+### `npm run build` 报 `crypto.getRandomValues is not a function`
+
+- 先执行 `node -v`
+- 如果版本低于 `16.0.0`，升级 Node.js
+- 如果版本已经是 16 或 18，删除 `node_modules` 和 `package-lock.json` 后重新执行 `npm install`
+- 确认安装后的 Vite 主版本为 4：`npm ls vite`
 
 ## 保留的 ROS / HTTP 合约
 
