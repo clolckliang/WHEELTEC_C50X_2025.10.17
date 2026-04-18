@@ -149,6 +149,120 @@ timestamp,x,y,z,vx,vy,vz,ax,ay,az,gx,gy,gz,voltage,current0,current1,current2
 - 多客户端仲裁
 - 导航与 Web 控制并行管理
 
+### 新版 React 控制台
+
+仓库现在同时包含一个新的前端源码工程：
+
+- 源码目录：`turn_on_wheeltec_robot/webapp`
+- 构建输出：`turn_on_wheeltec_robot/web/dist`
+
+技术栈：
+
+- React + TypeScript + Vite
+- Tailwind CSS
+- Zustand
+- Recharts
+- roslib
+
+新的静态服务策略：
+
+- 如果 `web/dist` 存在，`web_dashboard_server.py` 会优先服务新的 React 控制台
+- 如果 `web/dist` 不存在，则自动回退到旧版 `web/index.html`
+
+开发与迁移文档：
+
+- [webapp/README.md](./webapp/README.md)
+- [webapp/MIGRATION.md](./webapp/MIGRATION.md)
+
+### 部署
+
+新版控制台的部署原则很简单：
+
+- 前端源码在 `turn_on_wheeltec_robot/webapp`
+- 前端构建产物输出到 `turn_on_wheeltec_robot/web/dist`
+- `web_dashboard_server.py` 会优先服务 `web/dist`
+- `web/dist` 不存在时自动回退到旧版 `web/index.html`
+
+#### 方式 1：在机器人本机直接部署
+
+适合机器人本身已经安装了 Node.js，且你希望在机器人上直接构建前端。
+
+前提：
+
+- 机器人已安装 Node.js 和 npm
+- ROS 工作空间可以正常 `catkin_make`
+
+部署步骤：
+
+```bash
+cd ~/ml_robot_ws
+catkin_make
+source devel/setup.bash
+
+cd src/turn_on_wheeltec_robot/webapp
+npm install
+npm run build
+
+cd ~/ml_robot_ws
+source devel/setup.bash
+roslaunch turn_on_wheeltec_robot web_control.launch
+```
+
+启动后访问：
+
+- 页面：`http://<robot-ip>:8000`
+- rosbridge：`ws://<robot-ip>:9090`
+
+#### 方式 2：在开发机构建，再拷贝到机器人
+
+适合机器人性能较弱，或你希望把构建过程放在开发机完成。
+
+开发机构建：
+
+```bash
+cd turn_on_wheeltec_robot/webapp
+npm install
+npm run build
+```
+
+构建完成后会生成：
+
+- `turn_on_wheeltec_robot/web/dist`
+
+然后把整个 `dist` 目录同步到机器人对应 ROS 包下的 `web/` 目录中，保证机器人上的路径最终为：
+
+```text
+turn_on_wheeltec_robot/web/dist
+```
+
+之后在机器人上执行：
+
+```bash
+cd ~/ml_robot_ws
+catkin_make
+source devel/setup.bash
+roslaunch turn_on_wheeltec_robot web_control.launch
+```
+
+#### 部署后验证
+
+建议按下面顺序检查：
+
+1. 浏览器能否打开 `http://<robot-ip>:8000`
+2. 页面顶部连接状态是否从 `Disconnected` 进入 `Connected`
+3. `/web/control_status` 是否有状态输出
+4. 急停按钮是否能让机器人进入锁存急停
+5. Recorder 是否能开始录制、停止录制并下载 CSV
+6. 手机端触控摇杆与 Windows 端 Gamepad 是否能分别接管控制
+
+#### 回退到旧版页面
+
+如果新前端部署后需要快速回退：
+
+1. 删除或重命名 `turn_on_wheeltec_robot/web/dist`
+2. 重启 `web_dashboard_server.py` 或重新执行 `roslaunch turn_on_wheeltec_robot web_control.launch`
+3. 服务会自动回退到旧版 `turn_on_wheeltec_robot/web/index.html`
+
 ### 启动
 
 ```bash
@@ -284,6 +398,7 @@ cat /dev/ttyCH343USB1
 - 确认 `9090` 端口可访问
 - 确认页面中的 WebSocket 地址是机器人实际 IP
 - 确认 `rosbridge_server` 已安装
+- 如果是新前端，确认 `turn_on_wheeltec_robot/web/dist` 已构建完成
 
 ### 2. 电流数据为空
 
@@ -307,6 +422,20 @@ roslaunch turn_on_wheeltec_robot turn_on_wheeltec_robot.launch
 - 检查 `/web/control_status` 是否进入 `cmd_timeout` 或 `heartbeat_timeout`
 - 确认页面不是多个标签页同时发送命令
 
+### 5. 页面仍然是旧版样式
+
+- 检查机器人上的 `turn_on_wheeltec_robot/web/dist` 是否存在
+- 检查 `npm run build` 是否成功完成
+- 重启 `web_control.launch`
+- 确认 `web_dashboard_server.py` 没有报错并且优先指向 `web/dist`
+
+### 6. 新页面能打开，但 Recorder 文件列表为空
+
+- 检查 `data_collector.py` 是否已启动
+- 检查 launch 中的 `data_output_dir` 是否正确
+- 检查 `http://<robot-ip>:8000/api/data/list` 是否能返回 JSON
+- 检查机器人目录 `/home/wheeltec/R550PLUS_data_collect/log/` 下是否真的有 CSV 文件
+
 ---
 
 ## 文件清单
@@ -321,7 +450,9 @@ turn_on_wheeltec_robot/
 │   ├── cmd_vel_web_adapter.py      # Web 控制安全适配节点
 │   └── web_dashboard_server.py     # 静态 Web 页面服务
 ├── web/
-│   └── index.html                  # Web 控制与监控页面
+│   ├── index.html                  # 旧版 Web 控制与监控页面
+│   └── dist/                       # 新版 React 控制台构建产物
+├── webapp/                         # 新版前端源码工程
 └── launch/
     ├── data_collector.launch       # 数据采集启动文件
     ├── web_control.launch          # Web 控制 MVP 启动文件

@@ -1,0 +1,87 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  color-scheme: light;
+  --background: 197 44% 97%;
+  --foreground: 204 30% 12%;
+  --card: 0 0% 100%;
+  --card-foreground: 204 30% 12%;
+  --primary: 198 89% 46%;
+  --primary-foreground: 0 0% 100%;
+  --secondary: 192 24% 90%;
+  --secondary-foreground: 204 30% 16%;
+  --muted: 195 25% 92%;
+  --muted-foreground: 206 12% 40%;
+  --accent: 186 62% 90%;
+  --accent-foreground: 188 84% 22%;
+  --destructive: 3 77% 57%;
+  --destructive-foreground: 0 0% 100%;
+  --border: 202 24% 82%;
+  --input: 202 24% 82%;
+  --ring: 198 89% 46%;
+}
+
+.dark {
+  color-scheme: dark;
+  --background: 210 30% 8%;
+  --foreground: 198 20% 95%;
+  --card: 212 27% 12%;
+  --card-foreground: 198 20% 95%;
+  --primary: 194 92% 57%;
+  --primary-foreground: 210 50% 8%;
+  --secondary: 212 20% 18%;
+  --secondary-foreground: 198 18% 90%;
+  --muted: 214 19% 16%;
+  --muted-foreground: 208 11% 64%;
+  --accent: 191 65% 16%;
+  --accent-foreground: 187 80% 78%;
+  --destructive: 3 72% 57%;
+  --destructive-foreground: 0 0% 100%;
+  --border: 214 17% 23%;
+  --input: 214 17% 23%;
+  --ring: 194 92% 57%;
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+
+  body {
+    @apply min-h-screen bg-background text-foreground antialiased;
+    font-family: "Bahnschrift", "Segoe UI Variable", "PingFang SC", "Microsoft YaHei", sans-serif;
+    background-image:
+      radial-gradient(circle at 15% 20%, rgba(0, 145, 255, 0.12), transparent 28%),
+      radial-gradient(circle at 85% 15%, rgba(3, 169, 244, 0.1), transparent 26%),
+      radial-gradient(circle at 50% 100%, rgba(34, 211, 238, 0.08), transparent 30%);
+  }
+
+  #root {
+    @apply min-h-screen;
+  }
+}
+
+@layer utilities {
+  .console-shell {
+    @apply relative min-h-screen overflow-hidden;
+  }
+
+  .console-shell::before {
+    content: "";
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+    background-image: linear-gradient(rgba(255, 255, 255, 0.02), rgba(255, 255, 255, 0.02));
+    opacity: 0.35;
+  }
+
+  .panel-grid {
+    @apply grid gap-4 xl:gap-5;
+  }
+
+  .status-dot {
+    @apply inline-flex h-2.5 w-2.5 rounded-full;
+  }
+}

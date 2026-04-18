@@ -42,6 +42,9 @@ class DashboardHandler(SimpleHTTPRequestHandler):
         elif self.path.startswith("/api/data/download/"):
             self._handle_download()
         else:
+            request_path = self.path.split("?", 1)[0].split("#", 1)[0]
+            if request_path == "/" or not os.path.splitext(request_path)[1]:
+                self.path = "/index.html"
             SimpleHTTPRequestHandler.do_GET(self)
 
     def _handle_list(self):
@@ -105,7 +108,9 @@ class StaticDashboardServer(object):
         self.port = int(rospy.get_param("~port", 8000))
         self.data_dir = rospy.get_param("~data_dir", "/home/wheeltec/R550PLUS_data_collect/log")
         self.package_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-        self.web_root = os.path.join(self.package_root, "web")
+        self.legacy_web_root = os.path.join(self.package_root, "web")
+        self.dist_web_root = os.path.join(self.legacy_web_root, "dist")
+        self.web_root = self.dist_web_root if os.path.isdir(self.dist_web_root) else self.legacy_web_root
 
         if not os.path.isdir(self.web_root):
             raise RuntimeError("Web root does not exist: %s" % self.web_root)
