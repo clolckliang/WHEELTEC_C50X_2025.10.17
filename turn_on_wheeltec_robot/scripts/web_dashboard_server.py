@@ -1,4 +1,4 @@
-#!/usr/bin/env python
+#!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
 Static file server for the web teleop dashboard, plus a lightweight
@@ -7,6 +7,7 @@ Static file server for the web teleop dashboard, plus a lightweight
 
 import json
 import os
+import sys
 import threading
 
 import rospy
@@ -27,6 +28,14 @@ except ImportError:
     from urllib import unquote
 
 
+CURRENT_DIR = os.path.dirname(os.path.abspath(__file__))
+PACKAGE_ROOT = os.path.dirname(CURRENT_DIR)
+if PACKAGE_ROOT not in sys.path:
+    sys.path.insert(0, PACKAGE_ROOT)
+
+from scripts.agent_runtime import AgentRuntime
+
+
 class ReusableTCPServer(TCPServer):
     allow_reuse_address = True
 
@@ -39,6 +48,8 @@ class DashboardHandler(SimpleHTTPRequestHandler):
     def do_GET(self):
         if self.path == "/api/data/list":
             self._handle_list()
+        elif self.path == "/api/agent/health":
+            self._handle_agent_health()
         elif self.path.startswith("/api/data/download/"):
             self._handle_download()
         else:
@@ -46,6 +57,19 @@ class DashboardHandler(SimpleHTTPRequestHandler):
             if request_path == "/" or not os.path.splitext(request_path)[1]:
                 self.path = "/index.html"
             SimpleHTTPRequestHandler.do_GET(self)
+
+    def do_POST(self):
+        if self.path == "/api/agent/invoke":
+            self._handle_agent_invoke()
+            return
+        self._error_response(404, "unknown api route")
+
+    def do_OPTIONS(self):
+        self.send_response(204)
+        self.send_header("Access-Control-Allow-Origin", "*")
+        self.send_header("Access-Control-Allow-Headers", "Content-Type")
+        self.send_header("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
+        self.end_headers()
 
     def _handle_list(self):
         d = self.server.data_dir
@@ -56,10 +80,15 @@ class DashboardHandler(SimpleHTTPRequestHandler):
         for name in sorted(os.listdir(d), reverse=True):
             fp = os.path.join(d, name)
             if os.path.isfile(fp) and name.endswith(".csv"):
+                metadata = self._read_sidecar(name)
                 entries.append({
                     "name": name,
                     "size": os.path.getsize(fp),
                     "mtime": os.path.getmtime(fp),
+                    "displayName": metadata.get("display_name"),
+                    "label": metadata.get("label"),
+                    "tags": metadata.get("tags", []),
+                    "summary": metadata.get("summary"),
                 })
         self._json_response({"files": entries, "dir": d})
 
@@ -89,17 +118,72 @@ class DashboardHandler(SimpleHTTPRequestHandler):
                     break
                 self.wfile.write(chunk)
 
+    def _handle_agent_health(self):
+        runtime = getattr(self.server, "agent_runtime", None)
+        if runtime is None:
+            self._json_response({"available": False, "error": "agent runtime unavailable"}, 503)
+            return
+        self._json_response(runtime.health())
+
+    def _handle_agent_invoke(self):
+        runtime = getattr(self.server, "agent_runtime", None)
+        if runtime is None:
+            self._json_response({"status": "error", "error": "agent runtime unavailable"}, 503)
+            return
+
+        try:
+            content_length = int(self.headers.get("Content-Length", "0"))
+        except ValueError:
+            content_length = 0
+
+        body = self.rfile.read(content_length) if content_length > 0 else b"{}"
+        try:
+            payload = json.loads(body.decode("utf-8"))
+        except Exception:
+            self._error_response(400, "invalid json payload")
+            return
+
+        role = payload.get("role")
+        message = payload.get("message")
+        context = payload.get("context") or {}
+        if not role or not message:
+            self._error_response(400, "role and message are required")
+            return
+
+        try:
+            response = runtime.invoke(role=role, message=message, context=context)
+            self._json_response(response)
+        except Exception as exc:
+            rospy.logerr("agent invoke failed: %s", exc)
+            self._json_response({"status": "error", "error": str(exc)}, 500)
+
     def _json_response(self, obj, code=200):
         body = json.dumps(obj).encode("utf-8")
         self.send_response(code)
         self.send_header("Content-Type", "application/json")
         self.send_header("Content-Length", str(len(body)))
         self.send_header("Access-Control-Allow-Origin", "*")
+        self.send_header("Access-Control-Allow-Headers", "Content-Type")
+        self.send_header("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
         self.end_headers()
         self.wfile.write(body)
 
     def _error_response(self, code, msg):
         self._json_response({"error": msg}, code)
+
+    def _read_sidecar(self, csv_name):
+        data_dir = self.server.data_dir
+        if not data_dir:
+            return {}
+        sidecar_name = "%s.json" % os.path.splitext(csv_name)[0]
+        sidecar_path = os.path.join(data_dir, sidecar_name)
+        if not os.path.isfile(sidecar_path):
+            return {}
+        try:
+            with open(sidecar_path, "r", encoding="utf-8") as handle:
+                return json.load(handle)
+        except Exception:
+            return {}
 
 
 class StaticDashboardServer(object):
@@ -117,11 +201,18 @@ class StaticDashboardServer(object):
 
         self.server = None
         self.server_thread = None
+        self.agent_runtime = None
 
     def start(self):
         os.chdir(self.web_root)
         self.server = ReusableTCPServer((self.host, self.port), DashboardHandler)
         self.server.data_dir = self.data_dir
+        self.agent_runtime = AgentRuntime(
+            package_root=self.package_root,
+            data_dir=self.data_dir,
+            base_url="http://127.0.0.1:%d" % self.port,
+        )
+        self.server.agent_runtime = self.agent_runtime
         self.server_thread = threading.Thread(target=self.server.serve_forever)
         self.server_thread.daemon = True
         self.server_thread.start()

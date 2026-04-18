@@ -1,6 +1,7 @@
 import type { PropsWithChildren } from "react";
 import { BrowserRouter } from "react-router-dom";
 
+import { useControlLease } from "@/features/control-arbitration/hooks/useControlLease";
 import { useGamepadBridge } from "@/features/gamepad/hooks/useGamepadBridge";
 import { useCommandPublisher } from "@/features/manual-control/hooks/useCommandPublisher";
 import { useKeyboardControl } from "@/features/manual-control/hooks/useKeyboardControl";
@@ -10,6 +11,7 @@ import { useThemeSync } from "@/features/theme/hooks/useThemeSync";
 function RuntimeBootstrap() {
   useThemeSync();
   useRosRuntime();
+  useControlLease();
   useCommandPublisher();
   useKeyboardControl();
   useGamepadBridge();

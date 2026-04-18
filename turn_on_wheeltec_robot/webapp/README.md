@@ -205,6 +205,8 @@ roslaunch turn_on_wheeltec_robot web_control.launch
 
 - 发布 `/cmd_vel_web`
 - 发布 `/web/heartbeat`
+- 发布 `/web/cmd_vel_envelope`
+- 发布 `/web/client_heartbeat`
 - 发布 `/web/estop`
 - 发布 `/web/data_collect/command`
 - 订阅 `/odom`
@@ -215,3 +217,9 @@ roslaunch turn_on_wheeltec_robot web_control.launch
 - 订阅 `/web/data_collect/status`
 - 请求 `/api/data/list`
 - 下载 `/api/data/download/<filename>`
+
+补充说明：
+
+- 新控制台默认使用 `/web/cmd_vel_envelope` 和 `/web/client_heartbeat` 发送带客户端身份的仲裁消息
+- 机器人侧 `cmd_vel_web_adapter.py` 仍然兼容旧版 `/cmd_vel_web` 与 `/web/heartbeat`
+- 同一时刻仅允许一个 Web 客户端持有控制租约，其它客户端默认观察，可通过 `Take Control` 抢占

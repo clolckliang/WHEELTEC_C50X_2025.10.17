@@ -17,6 +17,12 @@ export function createTelemetrySnapshot(): TelemetrySnapshot {
     odomY: 0,
     currents: [0, 0, 0],
     controlStatus: "idle",
+    controlOwnerId: "",
+    controlOwnerName: "",
+    controlOwnerSource: "",
+    controlClientCount: 0,
+    controlWaitingCount: 0,
+    controlLastReleaseReason: "",
     updatedAt: Date.now(),
   };
 }
@@ -89,8 +95,31 @@ export function adaptOdometryMessage(message: LooseRecord): {
 }
 
 export function adaptControlStatusMessage(message: LooseRecord) {
+  const raw = String(message.data ?? "unknown");
+  try {
+    const payload = JSON.parse(raw);
+    return {
+      controlStatus: String(payload.status ?? "unknown"),
+      controlOwnerId: String(payload.owner_id ?? ""),
+      controlOwnerName: String(payload.owner_name ?? ""),
+      controlOwnerSource: String(payload.owner_source ?? ""),
+      controlClientCount: Number(payload.client_count ?? 0),
+      controlWaitingCount: Number(payload.waiting_count ?? 0),
+      controlLastReleaseReason: String(payload.last_release_reason ?? ""),
+      updatedAt: Date.now(),
+    };
+  } catch {
+    // Fall back to legacy plain-string status messages.
+  }
+
   return {
-    controlStatus: String(message.data ?? "unknown"),
+    controlStatus: raw,
+    controlOwnerId: "",
+    controlOwnerName: "",
+    controlOwnerSource: "",
+    controlClientCount: 0,
+    controlWaitingCount: 0,
+    controlLastReleaseReason: "",
     updatedAt: Date.now(),
   };
 }

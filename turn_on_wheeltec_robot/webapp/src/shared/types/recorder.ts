@@ -13,4 +13,8 @@ export interface RecordedFile {
   name: string;
   size: number;
   mtime: number;
+  displayName?: string;
+  label?: string;
+  tags?: string[];
+  summary?: string;
 }

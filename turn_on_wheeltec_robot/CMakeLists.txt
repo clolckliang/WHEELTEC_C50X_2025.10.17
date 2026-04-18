@@ -41,6 +41,7 @@ catkin_install_python(PROGRAMS
   scripts/current_reader.py
   scripts/data_collector.py
   scripts/node_ping.py
+  scripts/agent_runtime.py
   scripts/cmd_vel_web_adapter.py
   scripts/web_dashboard_server.py
   DESTINATION ${CATKIN_PACKAGE_BIN_DESTINATION}

@@ -1,4 +1,5 @@
 export type InputSource = "touch" | "keyboard" | "gamepad";
+export type ControlLeaseState = "owner" | "pending" | "observer";
 
 export type DriveMode = "standard" | "precision" | "inspection";
 

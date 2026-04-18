@@ -1,6 +1,7 @@
 import { BatteryCharging, Bug, Gamepad2, Signal } from "lucide-react";
 
 import { useControlStore, selectManualCommand } from "@/features/manual-control/model/control-store";
+import { useControlArbitrationStore } from "@/features/control-arbitration/model/control-arbitration-store";
 import { DriveModeTabs } from "@/features/manual-control/ui/DriveModeTabs";
 import { EmergencyStopButton } from "@/features/manual-control/ui/EmergencyStopButton";
 import { ThrottleSlider } from "@/features/manual-control/ui/ThrottleSlider";
@@ -21,8 +22,18 @@ export function MobileControlPage() {
   const gamepad = useGamepadStore((state) => state.snapshot);
   const connection = useRosConnectStore((state) => state.status);
   const controlState = useControlStore();
+  const clientId = useControlArbitrationStore((state) => state.clientId);
+  const wantsControl = useControlArbitrationStore((state) => state.wantsControl);
   const command = selectManualCommand(controlState);
   const battery = deriveBatteryState(telemetry.batteryVoltage);
+  const leaseNote =
+    telemetry.controlOwnerId === clientId
+      ? "当前页面持有控制权"
+      : telemetry.controlOwnerName
+        ? `当前由 ${telemetry.controlOwnerName} 控制`
+        : wantsControl
+          ? "等待控制租约"
+          : "观察模式";
 
   return (
     <main className="mx-auto flex max-w-[720px] flex-col gap-4 px-4 py-5">
@@ -54,6 +65,7 @@ export function MobileControlPage() {
           <CardContent className="space-y-3">
             <div className="grid gap-3 sm:grid-cols-2">
               <SummaryPill icon={Signal} label="Connection" value={connection} />
+              <SummaryPill icon={Signal} label="Lease" value={telemetry.controlStatus} note={leaseNote} />
               <SummaryPill icon={BatteryCharging} label="Battery" value={formatVoltage(telemetry.batteryVoltage)} note={battery.label} />
               <SummaryPill icon={Bug} label="Fault" value={fault.label} note={fault.advice} />
               <SummaryPill icon={Gamepad2} label="Gamepad" value={gamepad.connected ? "Ready" : "Offline"} note={gamepad.id} />

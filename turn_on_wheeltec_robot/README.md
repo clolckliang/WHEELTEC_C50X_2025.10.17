@@ -30,6 +30,8 @@
 | 发布 | `/current_data` | `std_msgs/Float32MultiArray` | 三通道电流 |
 | Web 输入 | `/cmd_vel_web` | `geometry_msgs/Twist` | 浏览器控制输入 |
 | Web 输入 | `/web/heartbeat` | `std_msgs/Empty` | 浏览器心跳 |
+| Web 输入 | `/web/cmd_vel_envelope` | `std_msgs/String` | 带客户端身份的控制命令 JSON |
+| Web 输入 | `/web/client_heartbeat` | `std_msgs/String` | 带客户端身份的租约心跳 JSON |
 | Web 输入 | `/web/estop` | `std_msgs/Bool` | 浏览器急停锁存/解除 |
 | Web 状态 | `/web/control_status` | `std_msgs/String` | Web 控制状态 |
 | 最终控制 | `/cmd_vel` | `geometry_msgs/Twist` | 底盘节点实际消费的话题 |
@@ -146,8 +148,13 @@ timestamp,x,y,z,vx,vy,vz,ax,ay,az,gx,gy,gz,voltage,current0,current1,current2
 当前不包含：
 
 - 视频传输
-- 多客户端仲裁
 - 导航与 Web 控制并行管理
+
+当前已支持：
+
+- 单持有者多客户端仲裁
+- Web 控制租约心跳续租
+- 观察模式与手动抢占
 
 ### 新版 React 控制台
 

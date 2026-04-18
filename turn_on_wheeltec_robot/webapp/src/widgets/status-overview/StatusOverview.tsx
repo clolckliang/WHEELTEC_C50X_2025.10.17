@@ -1,5 +1,6 @@
 import { BatteryCharging, GaugeCircle, Signal } from "lucide-react";
 
+import { useControlArbitrationStore } from "@/features/control-arbitration/model/control-arbitration-store";
 import { useFaultStore } from "@/entities/fault/model/fault-store";
 import { useGamepadStore } from "@/features/gamepad/model/gamepad-store";
 import { useRosConnectStore } from "@/features/ros-connect/model/ros-connect-store";
@@ -15,7 +16,17 @@ export function StatusOverview() {
   const fault = useFaultStore((state) => state.summary);
   const gamepad = useGamepadStore((state) => state.snapshot);
   const connectionStatus = useRosConnectStore((state) => state.status);
+  const clientId = useControlArbitrationStore((state) => state.clientId);
+  const wantsControl = useControlArbitrationStore((state) => state.wantsControl);
   const battery = deriveBatteryState(telemetry.batteryVoltage);
+  const leaseLabel =
+    telemetry.controlOwnerId === clientId
+      ? "Owned by this console"
+      : telemetry.controlOwnerName
+        ? `Owner ${telemetry.controlOwnerName}`
+        : wantsControl
+          ? "Waiting for lease"
+          : "Observer mode";
 
   return (
     <div className="grid gap-4 xl:grid-cols-4">
@@ -51,7 +62,9 @@ export function StatusOverview() {
             <GaugeCircle className="h-4 w-4 text-primary" />
           </div>
           <div className="text-2xl font-semibold">{telemetry.controlStatus}</div>
-          <p className="text-sm text-muted-foreground">输入优先级: Touch / Gamepad / Keyboard</p>
+          <p className="text-sm text-muted-foreground">
+            {leaseLabel} · {telemetry.controlClientCount} clients · {telemetry.controlWaitingCount} waiting
+          </p>
         </CardContent>
       </Card>
       <Card>

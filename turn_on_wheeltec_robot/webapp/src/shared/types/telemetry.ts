@@ -8,6 +8,12 @@ export interface TelemetrySnapshot {
   odomY: number;
   currents: [number, number, number];
   controlStatus: string;
+  controlOwnerId: string;
+  controlOwnerName: string;
+  controlOwnerSource: string;
+  controlClientCount: number;
+  controlWaitingCount: number;
+  controlLastReleaseReason: string;
   updatedAt: number;
 }
 

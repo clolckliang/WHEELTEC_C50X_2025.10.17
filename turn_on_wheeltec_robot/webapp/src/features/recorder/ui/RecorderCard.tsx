@@ -4,6 +4,7 @@ import { Download, FolderSync, Play, Square } from "lucide-react";
 import { RecorderStateBadge } from "@/entities/recorder/ui/RecorderStateBadge";
 import { useRecorderFiles } from "@/features/recorder/hooks/useRecorderFiles";
 import { useRecorderStore } from "@/features/recorder/model/recorder-store";
+import { useRosConnectStore } from "@/features/ros-connect/model/ros-connect-store";
 import { robotConfig } from "@/shared/config/robot";
 import { buildRecorderDownloadUrl } from "@/features/recorder/api/files-api";
 import { formatBytes, formatDuration, formatRelativeDate } from "@/shared/lib/format";
@@ -23,9 +24,15 @@ export function RecorderCard({ autoLoad = true, compact = false }: RecorderCardP
   const files = useRecorderStore((state) => state.files);
   const loadingFiles = useRecorderStore((state) => state.loadingFiles);
   const error = useRecorderStore((state) => state.error);
+  const rosStatus = useRosConnectStore((state) => state.status);
   const { refresh } = useRecorderFiles(autoLoad);
+  const rosConnected = rosStatus === "connected";
+  const recorderBusy = status.state === "recording" || status.state === "processing";
 
   const sendCommand = (command: "start" | "stop") => {
+    if (!rosConnected) {
+      return;
+    }
     const payload = command === "start" && label.trim() ? `${command}:${label.trim()}` : command;
     rosClient.publish(robotConfig.topics.recorderCommand.name, robotConfig.topics.recorderCommand.type, { data: payload });
   };
@@ -41,12 +48,17 @@ export function RecorderCard({ autoLoad = true, compact = false }: RecorderCardP
       </CardHeader>
       <CardContent className="space-y-4">
         <Input value={label} onChange={(event) => setLabel(event.target.value)} placeholder="录制标签，例如 normal / overload" />
+        {!rosConnected ? (
+          <div className="rounded-2xl border border-amber-500/30 bg-amber-500/10 px-4 py-3 text-sm text-amber-700 dark:text-amber-300">
+            Recorder 依赖 ROS 实时连接。当前状态为 `{rosStatus}`，开始/停止命令和状态回传会暂时不可用。
+          </div>
+        ) : null}
         <div className="grid gap-3 sm:grid-cols-3">
-          <Button onClick={() => sendCommand("start")}>
+          <Button onClick={() => sendCommand("start")} disabled={!rosConnected || recorderBusy}>
             <Play className="h-4 w-4" />
             开始
           </Button>
-          <Button variant="danger" onClick={() => sendCommand("stop")}>
+          <Button variant="danger" onClick={() => sendCommand("stop")} disabled={!rosConnected || status.state !== "recording"}>
             <Square className="h-4 w-4" />
             停止
           </Button>
@@ -72,6 +84,9 @@ export function RecorderCard({ autoLoad = true, compact = false }: RecorderCardP
             <div className="text-xs uppercase tracking-[0.18em] text-muted-foreground">Current File</div>
             <div className="mt-2 truncate text-sm font-semibold">{status.file || "--"}</div>
           </div>
+        </div>
+        <div className="rounded-2xl border border-border/70 bg-background/65 px-4 py-3 text-sm text-muted-foreground">
+          当前依赖链路：浏览器 `start/stop` {"->"} `/web/data_collect/command` {"->"} `data_collector.py` {"->"} `/web/data_collect/status` {"->"} Recorder 面板。
         </div>
         {!compact ? (
           <div className="space-y-3">
